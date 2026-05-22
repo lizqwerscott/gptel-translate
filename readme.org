@@ -1,0 +1,48 @@
+#+title: gptel-translate
+#+subtitle: Translate buffer/region content paragraph-by-paragraph using gptel
+#+author: lizqwer scott
+#+email: lizqwerscott@gmail.com
+#+language: en
+#+license: GPLv3
+
+#+options: toc:2 num:nil
+
+* Overview
+~gptel-translate~ is an Emacs package that translates a buffer (or a selected region) paragraph-by-paragraph using [[https://github.com/karthink/gptel][gptel]]. It creates a dedicated result buffer where the original text and the LLM-produced translation are displayed side by side, with syntax highlighting and navigation bindings.
+
+* Installation
+** With ~elpaca~
+#+begin_src emacs-lisp
+  (elpaca (gptel-translate :fetcher github :repo "lizqwerscott/gptel-translate" :files (:defaults "prompts")))
+#+end_src
+
+** Manual
+Clone the repository and add it to ~load-path~:
+
+#+begin_src sh
+git clone https://github.com/lizqwerscott/gptel-translate ~/.emacs.d/site-lisp/gptel-translate
+#+end_src
+
+#+begin_src emacs-lisp
+(add-to-list 'load-path "/path/gptel-translate")
+(require 'gptel-translate)
+#+end_src
+
+* Usage
+1. Open a buffer you want to translate.
+2. (Optional) Select a region to translate only that part.
+3. Run ~M-x gptel-translate-buffer~.
+
+** Key bindings in the result buffer
+
+| Key               | Command                              |
+|-------------------+--------------------------------------|
+| ~RET~             | Jump to original in source buffer    |
+| ~TAB~ / ~n~       | Next paragraph                       |
+| ~S-TAB~ / ~p~    | Previous paragraph                   |
+
+When moving between paragraphs, if ~gptel-translate-followp~ is non-nil (the
+default), point in the source buffer follows along automatically.
+
+* License
+GPLv3 — see the ~LICENSE~ file in the repository.

@@ -1,0 +1,3 @@
+*.elc
+gptel-translate-pkg.el
+gptel-translate-autoloads.el
