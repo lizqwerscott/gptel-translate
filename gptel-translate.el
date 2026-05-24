@@ -72,8 +72,8 @@ This is used in the prompt sent to the LLM."
   :type 'string)
 
 (defcustom gptel-translate-followp t
-  "Model symbol for gptel translate requests.
-If nil, uses `gptel-model'."
+  "Non-nil means follow the output during streaming translation.
+If nil, stay at the current position in the buffer."
   :type 'boolean
   :group 'gptel-translate)
 
