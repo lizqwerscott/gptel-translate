@@ -160,7 +160,7 @@ This variable is buffer-local to the result buffer.")
   "Is abort translate.")
 
 ;;; Internal helpers
-(defun gptel-translate--stream-init (n)
+(defun gptel-translate--stream-init ()
   "Initialize stream parser state for N paragraphs."
   (setq gptel-translate--stream-state
         (list :buffer "" :pos 0 :index -1)))
@@ -397,7 +397,7 @@ starts.  Returns the buffer and a list of slot markers."
       (setq gptel-translate-progress 0)
       (setq gptel-translate--current-pos (make-marker))
       (set-marker gptel-translate--current-pos (point))
-      (gptel-translate--stream-init (length paragraphs)))
+      (gptel-translate--stream-init))
     buf))
 
 (defun gptel-translate--insert-orig (result-buf orig orig-para)
