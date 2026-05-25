@@ -154,7 +154,6 @@ follow-up insertions to be placed correctly.")
 A plist with keys:
 - :buffer  - accumulated response text
 - :pos     - current scan position in :buffer
-- :ready   - vector of booleans, t when paragraph's orig text has been inserted
 This variable is buffer-local to the result buffer.")
 
 (defvar-local gptel-translate-abortp nil
@@ -164,8 +163,7 @@ This variable is buffer-local to the result buffer.")
 (defun gptel-translate--stream-init (n)
   "Initialize stream parser state for N paragraphs."
   (setq gptel-translate--stream-state
-        (list :buffer "" :pos 0 :index nil
-              :ready (make-vector n nil))))
+        (list :buffer "" :pos 0 :index -1)))
 
 (defun gptel-translate--stream-chunk (chunk orig-buffer orig-paras result-buf)
   "Process one streaming CHUNK of translation response.
@@ -174,9 +172,14 @@ ORIG-BUFFER is source buffer.
 ORIG-PARAS is source paras.
 RESULT-BUF is result buffer.
 
-When a marker `[--PARA_N--]' is detected in the stream, insert the
-original text of paragraph N (if not already inserted) and place a
-marker for streaming translation updates."
+Accumulates CHUNK into an internal buffer and scans for markers of the form
+`[--PARA_N--]'. When a marker is found: 1. The text preceding the marker is
+inserted as the translation of paragraph N (the one that was started by the
+previous marker). 2. The index advances to paragraph N+1. 3. The original text
+of paragraph N+1 is inserted into the result buffer.
+
+This ensures original paragraphs and their translations appear interleaved in
+the result buffer as the stream arrives."
   (with-current-buffer result-buf
     (let ((state gptel-translate--stream-state)
           (inhibit-read-only t))
@@ -188,28 +191,22 @@ marker for streaming translation updates."
             (marker-re "\\n?\\[--PARA_\\([0-9]+\\)--\\]\\n?"))
         (while (string-match marker-re buf-str pos)
           (let* ((end-of-marker (match-end 0))
-                 (marker-idx (string-to-number (match-string 1 buf-str)))
-                 (ready-vec (plist-get state :ready))
                  (before-marker (substring buf-str pos (match-beginning 0))))
             ;; First, flush the previous paragraph's text (before this marker)
-            (when (and current-idx (>= current-idx 0) (< current-idx (length orig-paras))
+            (when (and (>= current-idx 0) (< current-idx (length orig-paras))
                        (not (string-blank-p before-marker)))
               (gptel-translate--insert-translate result-buf (cons orig-buffer (cdr (nth current-idx orig-paras))) (string-trim before-marker)))
             ;; If this paragraph's orig text hasn't been inserted yet, do it now
-            (unless (aref ready-vec marker-idx)
-              (when (< marker-idx (length orig-paras))
-                (let* ((orig-para (nth marker-idx orig-paras))
-                       (orig (cons orig-buffer (cdr orig-para)))
-                       (orig-text (car orig-para)))
-                  (gptel-translate--insert-orig result-buf orig orig-text)))
-              (aset ready-vec marker-idx t))
-            (setq pos end-of-marker)
-            (setq current-idx marker-idx)))
+            (incf current-idx)
+            (when (< current-idx (length orig-paras))
+              (let* ((orig-para (nth current-idx orig-paras))
+                     (orig (cons orig-buffer (cdr orig-para)))
+                     (orig-text (car orig-para)))
+                (gptel-translate--insert-orig result-buf orig orig-text)))
+            (setq pos end-of-marker)))
         (setf (plist-get state :pos) pos)
         (setf (plist-get state :index) current-idx)
-        ;; Update progress in header based on how many slots are ready
-        (let ((n-ready (cl-count-if #'identity (plist-get state :ready))))
-          (setq gptel-translate-progress n-ready))))))
+        (setq gptel-translate-progress current-idx)))))
 
 (defun gptel-translate--stream-flush (orig-buffer orig-paras result-buf)
   "Finalize the streaming state: insert the last pending translation.
@@ -223,19 +220,14 @@ the last marker belongs to the last detected paragraph."
   (with-current-buffer result-buf
     (let* ((state gptel-translate--stream-state)
            (buf-str (plist-get state :buffer))
-           (pos (plist-get state :pos)))
-      ;; find the last detected index by scanning :ready vector
-      (let ((last-idx -1))
-        (dotimes (i (length (plist-get state :ready)))
-          (when (aref (plist-get state :ready) i)
-            (setq last-idx i)))
-        (when (>= last-idx 0)
-          ;; Insert any remaining text after the last marker
-          (when (and (< pos (length buf-str))
-                     (> (length (substring buf-str pos)) 0))
-            (let ((remaining (substring buf-str pos)))
-              (when (not (string-blank-p remaining))
-                (gptel-translate--insert-translate result-buf (cons orig-buffer (cdr (nth last-idx orig-paras))) (string-trim remaining))))))))))
+           (pos (plist-get state :pos))
+           (current-idx (plist-get state :index)))
+      ;; Insert any remaining text after the last marker
+      (when (and (< pos (length buf-str))
+                 (> (length (substring buf-str pos)) 0))
+        (let ((remaining (substring buf-str pos)))
+          (when (not (string-blank-p remaining))
+            (gptel-translate--insert-translate result-buf (cons orig-buffer (cdr (nth current-idx orig-paras))) (string-trim remaining))))))))
 
 (defun gptel-translate--resolve-system-prompt (replaces)
   "Return the rendered system prompt.
