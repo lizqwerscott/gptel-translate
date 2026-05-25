@@ -517,33 +517,36 @@ Show original text and translation side-by-side in a new buffer."
                             :stream gptel-translate-streamp
                             :callback
                             (lambda (response _info)
-                              (cond (gptel-translate-abortp
-                                     (message "Translation abort."))
-                                    ((and (stringp response)
-                                          (not (string-empty-p response)))
-                                     (if gptel-translate-streamp
-                                         (gptel-translate--stream-chunk
-                                          response orig-buffer orig-paras result-buf)
-                                       (cl-incf done (gptel-translate--apply-parsed-response
-                                                      response orig-buffer orig-paras result-buf))
+                              (with-current-buffer result-buf
+                                (cond (gptel-translate-abortp
+                                       (message "Translation abort.")
+                                       (call-interactively #'gptel-abort))
+                                      ((and (stringp response)
+                                            (not (string-empty-p response)))
+                                       (if gptel-translate-streamp
+                                           (gptel-translate--stream-chunk
+                                            response orig-buffer orig-paras result-buf)
+                                         (cl-incf done (gptel-translate--apply-parsed-response
+                                                        response orig-buffer orig-paras result-buf))
+                                         (with-current-buffer result-buf
+                                           (setq-local gptel-translate-failed failures)
+                                           (setq-local gptel-translate-progress done))
+                                         (send-merged (1+ merge-idx))))
+                                      ((and gptel-translate-streamp (eq response t))
+                                       (gptel-translate--stream-flush
+                                        orig-buffer orig-paras result-buf)
+                                       (cl-incf done (length orig-paras))
                                        (with-current-buffer result-buf
                                          (setq-local gptel-translate-failed failures)
                                          (setq-local gptel-translate-progress done))
-                                       (send-merged (1+ merge-idx))))
-                                    ((and gptel-translate-streamp (eq response t))
-                                     (gptel-translate--stream-flush
-                                      orig-buffer orig-paras result-buf)
-                                     (cl-incf done (length orig-paras))
-                                     (with-current-buffer result-buf
-                                       (setq-local gptel-translate-failed failures)
-                                       (setq-local gptel-translate-progress done))
-                                     (send-merged (1+ merge-idx)))
-                                    ((consp response)) ; streaming intermediate, ignore
-                                    (t (progn
-                                         (cl-incf failures)
-                                         (with-current-buffer result-buf
-                                           (setq-local gptel-translate-failed failures))
-                                         (send-merged (1+ merge-idx)))))))))))
+                                       (send-merged (1+ merge-idx)))
+                                      ((consp response)) ; streaming intermediate, ignore
+                                      (t (progn
+                                           (cl-incf failures)
+                                           (with-current-buffer result-buf
+                                             (setq-local gptel-translate-failed failures))
+                                           (send-merged (1+ merge-idx))))))
+                              ))))))
           (send-merged 0))))))
 
 ;;; Mode
