@@ -324,7 +324,7 @@ as a rough token estimate)."
         (max-token (* 1000 (gptel-translate--resolve-context-window) 0.6 0.5)))
     (dolist (para paragraphs)
       (let ((para-data (car para)))
-        (if (<= (/ (+ current-length (length para-data)) 3) max-token)
+        (if (or (not current-para) (<= (/ (+ current-length (length para-data)) 3) max-token))
             (progn
               (push para-data current-para)
               (push para orig-para)
@@ -342,9 +342,9 @@ as a rough token estimate)."
     (when current-para
       (let ((idx -1))
         (push (cons (string-join (mapcar (lambda (item)
-                                           (format "\n[--PARA_%s--]\n%s" (incf idx) item))
+                                           (format "[--PARA_%s--]\n%s" (incf idx) item))
                                          (reverse current-para))
-                                 "\n")
+                                 "")
                     (reverse orig-para))
               result)))
     (reverse result)))
