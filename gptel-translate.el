@@ -157,6 +157,9 @@ A plist with keys:
 - :ready   - vector of booleans, t when paragraph's orig text has been inserted
 This variable is buffer-local to the result buffer.")
 
+(defvar-local gptel-translate-abortp nil
+  "Is abort translate.")
+
 ;;; Internal helpers
 (defun gptel-translate--stream-init (n)
   "Initialize stream parser state for N paragraphs."
@@ -395,6 +398,7 @@ starts.  Returns the buffer and a list of slot markers."
     (with-current-buffer buf
       (goto-char (point-min))
       (gptel-translate-result-mode)
+      (setq gptel-translate-abortp nil)
       (setq gptel-translate-orig-buffer-name orig-name)
       (setq gptel-translate-orig-buffer orig-buffer)
       (setq gptel-translate-paragraph-number (length paragraphs))
@@ -513,7 +517,9 @@ Show original text and translation side-by-side in a new buffer."
                             :stream gptel-translate-streamp
                             :callback
                             (lambda (response _info)
-                              (cond ((and (stringp response)
+                              (cond (gptel-translate-abortp
+                                     (message "Translation abort."))
+                                    ((and (stringp response)
                                           (not (string-empty-p response)))
                                      (if gptel-translate-streamp
                                          (gptel-translate--stream-chunk
@@ -551,6 +557,7 @@ Show original text and translation side-by-side in a new buffer."
 
     (define-key map (kbd "<backtab>") #'gptel-translate-previous-paragraph)
     (define-key map (kbd "p") #'gptel-translate-previous-paragraph)
+    (define-key map (kbd "C-g") #'gptel-translate-abort)
     map)
   "Keymap for `gptel-translate-result-mode'.")
 
@@ -613,6 +620,13 @@ Puts point at the start of the original text."
   (interactive)
   (unless (gptel-translate--find-paragraph-boundaries 'backward)
     (message "No previous paragraph")))
+
+(defun gptel-translate-abort ()
+  "Stop translate."
+  (interactive)
+  (message "Translate abort start.")
+  (call-interactively #'gptel-abort)
+  (setq gptel-translate-abortp t))
 
 ;;;###autoload
 (define-derived-mode gptel-translate-result-mode special-mode "GPTel-Translate"
