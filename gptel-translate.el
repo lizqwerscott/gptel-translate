@@ -126,6 +126,36 @@ A clean, slightly cool light-gray background in light themes,
 and a deep blue-gray in dark themes. High readability."
   :group 'gptel-translate)
 
+(defface gptel-translate-status-idle-face
+  '((t :inherit shadow))
+  "Face for `idle' status indicator in header-line."
+  :group 'gptel-translate)
+
+(defface gptel-translate-status-waiting-face
+  '((t :inherit font-lock-builtin-face))
+  "Face for `waiting' status indicator in header-line."
+  :group 'gptel-translate)
+
+(defface gptel-translate-status-translating-face
+  '((t :inherit font-lock-keyword-face :weight bold))
+  "Face for `translating' status indicator in header-line."
+  :group 'gptel-translate)
+
+(defface gptel-translate-status-complete-face
+  '((t :inherit success))
+  "Face for `complete' status indicator in header-line."
+  :group 'gptel-translate)
+
+(defface gptel-translate-status-aborted-face
+  '((t :inherit warning))
+  "Face for `aborted' status indicator in header-line."
+  :group 'gptel-translate)
+
+(defface gptel-translate-status-error-face
+  '((t :inherit error))
+  "Face for `error' status indicator in header-line."
+  :group 'gptel-translate)
+
 ;;; VAR
 
 (defvar-local gptel-translate-orig-buffer-name ""
@@ -155,6 +185,16 @@ A plist with keys:
 - :buffer  - accumulated response text
 - :pos     - current scan position in :buffer
 This variable is buffer-local to the result buffer.")
+
+(defvar-local gptel-translate--status 'idle
+  "Current translation status.
+One of `idle', `waiting', `translating', `complete', `aborted', `error'.")
+
+(defvar-local gptel-translate--backend-name ""
+  "Backend name used for translation, stored for header-line display.")
+
+(defvar-local gptel-translate--model-name ""
+  "Model name used for translation, stored for header-line display.")
 
 ;;; Internal helpers
 (defun gptel-translate--stream-init ()
@@ -225,6 +265,25 @@ the last marker belongs to the last detected paragraph."
         (let ((remaining (substring buf-str pos)))
           (when (not (string-blank-p remaining))
             (gptel-translate--insert-translate result-buf (cons orig-buffer (cdr (nth current-idx orig-paras))) (string-trim remaining))))))))
+
+(defun gptel-translate--format-status ()
+  "Return propertized status string for header-line."
+  (pcase gptel-translate--status
+    ('idle        (propertize " ● Idle"        'face 'gptel-translate-status-idle-face))
+    ('waiting     (propertize " ● Waiting"     'face 'gptel-translate-status-waiting-face))
+    ('translating (propertize " ▶ Translating" 'face 'gptel-translate-status-translating-face))
+    ('complete    (propertize " ✔ Complete"    'face 'gptel-translate-status-complete-face))
+    ('aborted     (propertize " ⊘ Aborted"     'face 'gptel-translate-status-aborted-face))
+    ('error       (propertize " ✗ Error"       'face 'gptel-translate-status-error-face))))
+
+(defun gptel-translate--format-model-backend ()
+  "Return propertized backend:model string for header-line right side."
+  (when (and (not (string-empty-p gptel-translate--backend-name))
+             (not (string-empty-p gptel-translate--model-name)))
+    (propertize (format "%s:%s"
+                        gptel-translate--backend-name
+                        gptel-translate--model-name)
+                'face 'shadow)))
 
 (defun gptel-translate--resolve-system-prompt (replaces)
   "Return the rendered system prompt.
@@ -391,6 +450,7 @@ starts.  Returns the buffer and a list of slot markers."
       (setq gptel-translate-orig-buffer orig-buffer)
       (setq gptel-translate-paragraph-number (length paragraphs))
       (setq gptel-translate-progress 0)
+      (setq gptel-translate--status 'idle)
       (setq gptel-translate--current-pos (make-marker))
       (set-marker gptel-translate--current-pos (point))
       (gptel-translate--stream-init))
@@ -491,10 +551,16 @@ Show original text and translation side-by-side in a new buffer."
         (display-buffer result-buf)
         ;; Send requests sequentially via recursive callback chain
         (with-current-buffer result-buf
+          (setq gptel-translate--backend-name (gptel-backend-name gptel-backend))
+          (setq gptel-translate--model-name (gptel--model-name gptel-model))
           (cl-labels ((send-merged (merge-idx)
                         (if (or (>= merge-idx (length merge-parapgraphs)))
-                            (message "Translation complete: %d ok, %d failed, %d total"
-                                     done failures total)
+                            (progn
+                              (setq gptel-translate--status
+                                    (if (> failures 0) 'error 'complete))
+                              (message "Translation complete: %d ok, %d failed, %d total"
+                                       done failures total))
+                          (setq gptel-translate--status 'waiting)
                           (let* ((merge-pair (nth merge-idx merge-parapgraphs))
                                  (merged-text (car merge-pair))
                                  (orig-paras (cdr merge-pair))) ; list of (STRING . POS)
@@ -509,10 +575,13 @@ Show original text and translation side-by-side in a new buffer."
                               (lambda (response _info)
                                 (with-current-buffer result-buf
                                   (cond ((eq response 'abort)
+                                         (setq gptel-translate--status 'aborted)
                                          (message "Translation abort: %d ok, %d failed, %d total"
                                                   done failures total))
                                         ((and (stringp response)
                                               (not (string-empty-p response)))
+                                         (when gptel-translate-streamp
+                                           (setq gptel-translate--status 'translating))
                                          (if gptel-translate-streamp
                                              (gptel-translate--stream-chunk
                                               response orig-buffer orig-paras result-buf)
@@ -630,6 +699,8 @@ TAB and S-TAB move between original paragraphs.
   :group 'gptel-translate
   (setq header-line-format
         `(" "
+          (:eval (gptel-translate--format-status))
+          " "
           ,(propertize "Translation of " 'face 'gptel-translate-header-desc-face)
           (:eval (propertize gptel-translate-orig-buffer-name 'face 'font-lock-keyword-face))
           " "
@@ -641,7 +712,15 @@ TAB and S-TAB move between original paragraphs.
            (unless (= gptel-translate-failed 0)
              (list (propertize " failed: " 'face 'gptel-translate-header-desc-face)
                    (propertize (format "%d" gptel-translate-failed)
-                               'face 'font-lock-keyword-face)))))))
+                               'face 'font-lock-keyword-face))))
+          (:eval
+           (when-let ((mb (gptel-translate--format-model-backend)))
+             (concat
+              (propertize " " 'display
+                          (if (fboundp 'string-pixel-width)
+                              `(space :align-to (- right (,(string-pixel-width mb))))
+                            `(space :align-to (- right ,(+ 5 (string-width mb))))))
+              (propertize mb 'face 'font-lock-keyword-face)))))))
 
 (provide 'gptel-translate)
 ;;; gptel-translate.el ends here
