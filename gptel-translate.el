@@ -156,9 +156,6 @@ A plist with keys:
 - :pos     - current scan position in :buffer
 This variable is buffer-local to the result buffer.")
 
-(defvar-local gptel-translate-abortp nil
-  "Is abort translate.")
-
 ;;; Internal helpers
 (defun gptel-translate--stream-init ()
   "Initialize stream parser state for N paragraphs."
@@ -390,7 +387,6 @@ starts.  Returns the buffer and a list of slot markers."
     (with-current-buffer buf
       (goto-char (point-min))
       (gptel-translate-result-mode)
-      (setq gptel-translate-abortp nil)
       (setq gptel-translate-orig-buffer-name orig-name)
       (setq gptel-translate-orig-buffer orig-buffer)
       (setq gptel-translate-paragraph-number (length paragraphs))
@@ -496,7 +492,7 @@ Show original text and translation side-by-side in a new buffer."
         ;; Send requests sequentially via recursive callback chain
         (with-current-buffer result-buf
           (cl-labels ((send-merged (merge-idx)
-                        (if (or gptel-translate-abortp (>= merge-idx (length merge-parapgraphs)))
+                        (if (or (>= merge-idx (length merge-parapgraphs)))
                             (message "Translation complete: %d ok, %d failed, %d total"
                                      done failures total)
                           (let* ((merge-pair (nth merge-idx merge-parapgraphs))
@@ -512,7 +508,9 @@ Show original text and translation side-by-side in a new buffer."
                               :callback
                               (lambda (response _info)
                                 (with-current-buffer result-buf
-                                  (cond (gptel-translate-abortp)
+                                  (cond ((eq response 'abort)
+                                         (message "Translation abort: %d ok, %d failed, %d total"
+                                                  done failures total))
                                         ((and (stringp response)
                                               (not (string-empty-p response)))
                                          (if gptel-translate-streamp
@@ -617,8 +615,7 @@ Puts point at the start of the original text."
   "Stop translate."
   (interactive)
   (message "Translate abort start.")
-  (call-interactively #'gptel-abort)
-  (setq gptel-translate-abortp t))
+  (call-interactively #'gptel-abort))
 
 ;;;###autoload
 (define-derived-mode gptel-translate-result-mode special-mode "GPTel-Translate"
