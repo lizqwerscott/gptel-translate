@@ -505,6 +505,7 @@ Show original text and translation side-by-side in a new buffer."
                             (gptel-request (templatel-render-string gptel-translate-user-prompt
                                                                     `(("to" . ,gptel-translate-target-language)
                                                                       ("input" . ,merged-text)))
+                              :buffer result-buf
                               :system (gptel-translate--resolve-system-prompt
                                        `(("to" . ,gptel-translate-target-language)))
                               :stream gptel-translate-streamp
