@@ -554,6 +554,68 @@ a translation."
              do (gptel-translate--insert-translate result-buf orig translate headingp level))
     orig-count))
 
+(defun gptel-translate--send-requests (result-buf orig-buffer merge-batches total)
+  "Send translation requests sequentially through the LLM.
+
+RESULT-BUF is the result buffer.
+ORIG-BUFFER is the source buffer.
+MERGE-BATCHES is a list of (MERGED-TEXT . ORIG-PARAS) cons cells.
+TOTAL is the total number of paragraphs being translated."
+  (let ((done 0)
+        (failures 0))
+    (with-current-buffer result-buf
+      (cl-labels ((send-merged (merge-idx)
+                    (if (or (>= merge-idx (length merge-batches)))
+                        (progn
+                          (setq gptel-translate--status
+                                (if (> failures 0) 'error 'complete))
+                          (message "Translation complete: %d ok, %d failed, %d total"
+                                   done failures total))
+                      (setq gptel-translate--status 'waiting)
+                      (let* ((merge-pair (nth merge-idx merge-batches))
+                             (merged-text (car merge-pair))
+                             (orig-paras (cdr merge-pair)))
+                        (gptel-request (templatel-render-string gptel-translate-user-prompt
+                                                                `(("to" . ,gptel-translate-target-language)
+                                                                  ("input" . ,merged-text)))
+                          :buffer result-buf
+                          :system (gptel-translate--resolve-system-prompt
+                                   `(("to" . ,gptel-translate-target-language)))
+                          :stream gptel-translate-streamp
+                          :callback
+                          (lambda (response _info)
+                            (with-current-buffer result-buf
+                              (cond ((eq response 'abort)
+                                     (setq gptel-translate--status 'aborted)
+                                     (message "Translation abort: %d ok, %d failed, %d total"
+                                              done failures total))
+                                    ((and (stringp response)
+                                          (not (string-empty-p response)))
+                                     (when gptel-translate-streamp
+                                       (setq gptel-translate--status 'translating))
+                                     (if gptel-translate-streamp
+                                         (gptel-translate--stream-chunk
+                                          response orig-buffer orig-paras result-buf)
+                                       (cl-incf done (gptel-translate--apply-parsed-response
+                                                      response orig-buffer orig-paras result-buf))
+                                       (setq-local gptel-translate-failed failures)
+                                       (setq-local gptel-translate-progress done)
+                                       (send-merged (1+ merge-idx))))
+                                    ((and gptel-translate-streamp (eq response t))
+                                     (gptel-translate--stream-flush
+                                      orig-buffer orig-paras result-buf)
+                                     (cl-incf done (length orig-paras))
+                                     (setq-local gptel-translate-failed failures)
+                                     (setq-local gptel-translate-progress done)
+                                     (send-merged (1+ merge-idx)))
+                                    ((consp response))
+                                    (t (progn
+                                         (cl-incf failures)
+                                         (setq-local gptel-translate-failed failures)
+                                         (send-merged (1+ merge-idx))))))
+                            ))))))
+        (send-merged 0)))))
+
 ;;; Commands
 
 ;;;###autoload
@@ -584,65 +646,67 @@ collection."
                                     (gptel-translate--merge-org-items paragraphs
                                                                       (* 1000 (gptel-translate--resolve-context-window) 0.6 0.5 3))
                                   (gptel-translate--merge-paragraphs paragraphs)))
-             (result-buf (gptel-translate--make-result-buffer orig-name orig-buffer paragraphs))
-             (done 0)
-             (failures 0))
+             (result-buf (gptel-translate--make-result-buffer orig-name orig-buffer paragraphs)))
         (display-buffer result-buf)
-        ;; Send requests sequentially via recursive callback chain
         (with-current-buffer result-buf
           (setq gptel-translate--backend-name (gptel-backend-name gptel-backend))
-          (setq gptel-translate--model-name (gptel--model-name gptel-model))
-          (cl-labels ((send-merged (merge-idx)
-                        (if (or (>= merge-idx (length merge-parapgraphs)))
-                            (progn
-                              (setq gptel-translate--status
-                                    (if (> failures 0) 'error 'complete))
-                              (message "Translation complete: %d ok, %d failed, %d total"
-                                       done failures total))
-                          (setq gptel-translate--status 'waiting)
-                          (let* ((merge-pair (nth merge-idx merge-parapgraphs))
-                                 (merged-text (car merge-pair))
-                                 (orig-paras (cdr merge-pair))) ; list of (STRING . POS)
-                            (gptel-request (templatel-render-string gptel-translate-user-prompt
-                                                                    `(("to" . ,gptel-translate-target-language)
-                                                                      ("input" . ,merged-text)))
-                              :buffer result-buf
-                              :system (gptel-translate--resolve-system-prompt
-                                       `(("to" . ,gptel-translate-target-language)))
-                              :stream gptel-translate-streamp
-                              :callback
-                              (lambda (response _info)
-                                (with-current-buffer result-buf
-                                  (cond ((eq response 'abort)
-                                         (setq gptel-translate--status 'aborted)
-                                         (message "Translation abort: %d ok, %d failed, %d total"
-                                                  done failures total))
-                                        ((and (stringp response)
-                                              (not (string-empty-p response)))
-                                         (when gptel-translate-streamp
-                                           (setq gptel-translate--status 'translating))
-                                         (if gptel-translate-streamp
-                                             (gptel-translate--stream-chunk
-                                              response orig-buffer orig-paras result-buf)
-                                           (cl-incf done (gptel-translate--apply-parsed-response
-                                                          response orig-buffer orig-paras result-buf))
-                                           (setq-local gptel-translate-failed failures)
-                                           (setq-local gptel-translate-progress done)
-                                           (send-merged (1+ merge-idx))))
-                                        ((and gptel-translate-streamp (eq response t))
-                                         (gptel-translate--stream-flush
-                                          orig-buffer orig-paras result-buf)
-                                         (cl-incf done (length orig-paras))
-                                         (setq-local gptel-translate-failed failures)
-                                         (setq-local gptel-translate-progress done)
-                                         (send-merged (1+ merge-idx)))
-                                        ((consp response)) ; streaming intermediate, ignore
-                                        (t (progn
-                                             (cl-incf failures)
-                                             (setq-local gptel-translate-failed failures)
-                                             (send-merged (1+ merge-idx))))))
-                                ))))))
-            (send-merged 0)))))))
+          (setq gptel-translate--model-name (gptel--model-name gptel-model)))
+        (gptel-translate--send-requests result-buf orig-buffer merge-parapgraphs total)))))
+
+;;;###autoload
+(defun gptel-translate-retranslate ()
+  "Re-translate all content in the current result buffer.
+
+Clears all existing translations and re-sends all paragraphs
+to the LLM.  The original text is re-collected from the source
+buffer to pick up any changes.
+
+This command is only available in `gptel-translate-result-mode'."
+  (interactive)
+  (let ((orig-buffer gptel-translate-orig-buffer))
+    (unless (buffer-live-p orig-buffer)
+      (user-error "Original buffer \"%s\" is no longer alive"
+                  gptel-translate-orig-buffer-name))
+    ;; Abort any in-progress translation
+    (when (memq gptel-translate--status '(waiting translating))
+      (gptel-translate-abort))
+    ;; Re-collect paragraphs from source buffer
+    (let* ((paragraphs
+            (with-current-buffer orig-buffer
+              (if (eq major-mode 'org-mode)
+                  (gptel-translate--collect-org-items)
+                (gptel-translate--collect-paragraphs))))
+           (total (length paragraphs)))
+      (if (zerop total)
+          (message "Nothing to translate")
+        ;; Resolve backend/model with current settings
+        (let* ((gptel-backend (gptel-translate--resolve-backend))
+               (gptel-model (gptel-translate--resolve-model))
+               (gptel-tools nil)
+               (gptel-use-tools nil)
+               (merge-batches
+                (with-current-buffer orig-buffer
+                  (if (eq major-mode 'org-mode)
+                      (gptel-translate--merge-org-items
+                       paragraphs
+                       (* 1000 (gptel-translate--resolve-context-window) 0.6 0.5 3))
+                    (gptel-translate--merge-paragraphs paragraphs)))))
+          ;; Clear result buffer and reset state
+          (let ((inhibit-read-only t))
+            (erase-buffer)
+            (setq gptel-translate-paragraph-number total)
+            (setq gptel-translate-progress 0)
+            (setq gptel-translate-failed 0)
+            (setq gptel-translate--status 'idle)
+            (setq gptel-translate--backend-name
+                  (gptel-backend-name gptel-backend))
+            (setq gptel-translate--model-name
+                  (gptel--model-name gptel-model))
+            (set-marker gptel-translate--current-pos (point-min))
+            (gptel-translate--stream-init))
+          ;; Launch request chain
+          (gptel-translate--send-requests
+           (current-buffer) orig-buffer merge-batches total))))))
 
 ;;; Mode
 
@@ -655,6 +719,7 @@ collection."
 
     (define-key map (kbd "<backtab>") #'gptel-translate-previous-paragraph)
     (define-key map (kbd "p") #'gptel-translate-previous-paragraph)
+    (define-key map (kbd "g") #'gptel-translate-retranslate)
     (define-key map (kbd "C-g") #'gptel-translate-abort)
     map)
   "Keymap for `gptel-translate-result-mode'.")
