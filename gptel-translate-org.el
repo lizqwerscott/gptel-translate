@@ -78,24 +78,30 @@ Only elements of type headline are extracted; non-headline elements are skipped.
           (if child-headlines
               (setq body-end (org-element-property :begin (car child-headlines)))
             (setq body-end cend))
-          ;; Extract body text, split by forward-paragraph into (STRING . POS) list
-          (setq body (if (and cbeg body-end (> body-end cbeg))
-                         (save-excursion
-                           (goto-char cbeg)
-                           (skip-chars-forward "\n")
-                           (let (paras)
-                             (while (< (point) body-end)
-                               (let ((para-start (point)))
-                                 (forward-paragraph)
-                                 (when (> (point) body-end)
-                                   (goto-char body-end))
-                                 (let ((para-text
-                                        (buffer-substring-no-properties
-                                         para-start (point))))
-                                   (unless (string-blank-p para-text)
-                                     (push (cons para-text para-start) paras)))))
-                             (nreverse paras)))
-                       nil))
+          ;; Extract body text, split by forward-paragraph into (STRING . POS) list.
+          ;; Skip property drawers and source code blocks.
+          (setq body (when (and cbeg body-end (> body-end cbeg))
+                       (save-excursion
+                         (goto-char cbeg)
+                         (skip-chars-forward "\n")
+                         (let (paras)
+                           (while (< (point) body-end)
+                             (skip-chars-forward "[:blank:\n\r]" body-end)
+                             (let* ((elem (org-element-at-point))
+                                    (elem-type (car elem))
+                                    (elem-end (org-element-property :end elem)))
+                               (if (memq elem-type '(property-drawer src-block))
+                                   (goto-char (min elem-end body-end))
+                                 (let ((para-start (point)))
+                                   (forward-paragraph)
+                                   (when (> (point) body-end)
+                                     (goto-char body-end))
+                                   (let ((para-text
+                                          (buffer-substring-no-properties
+                                           para-start (point))))
+                                     (unless (string-blank-p para-text)
+                                       (push (cons para-text para-start) paras)))))))
+                           (nreverse paras)))))
           (setq children
                 (gptel-translate--org-extract-nodes
                  (org-element-contents elem)))
