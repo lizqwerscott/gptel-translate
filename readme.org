@@ -40,6 +40,8 @@ git clone https://github.com/lizqwerscott/gptel-translate ~/.emacs.d/site-lisp/g
 | ~RET~             | Jump to original in source buffer    |
 | ~TAB~ / ~n~       | Next paragraph                       |
 | ~S-TAB~ / ~p~    | Previous paragraph                   |
+| ~g~               | Re-translate current paragraph       |
+| ~C-g~             | Abort translation                    |
 
 When moving between paragraphs, if ~gptel-translate-followp~ is non-nil (the
 default), point in the source buffer follows along automatically.
