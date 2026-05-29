@@ -53,8 +53,8 @@ CHILDREN is a list of recursively parsed child nodes (same format)."
   "Recursively extract subtree nodes from an org-element CONTENTS list.
 
 CONTENTS is the list of parsed org-element contents (e.g., the :contents
-property value). Returns a list of (:heading :body :pos :level :children) plists, where
-:body is a list of (STRING . POS).
+property value). Returns a list of (:heading :body :pos :level :children)
+plists, where :body is a list of (STRING . POS).
 
 Only elements of type headline are extracted; non-headline elements are skipped."
   (let (result)
