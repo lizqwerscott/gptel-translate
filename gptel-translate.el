@@ -30,6 +30,8 @@
 (require 'gptel-request)
 (require 'templatel)
 
+(require 'gptel-translate-org)
+
 ;;; Customization
 
 (defgroup gptel-translate nil
@@ -530,11 +532,17 @@ a translation."
 (defun gptel-translate-buffer (&optional beg end)
   "Translate buffer (or region BEG to END) paragraph-by-paragraph.
 
-Show original text and translation side-by-side in a new buffer."
+Show original text and translation side-by-side in a new buffer.
+
+In Org mode, collects content by subtree so headings and their body
+paragraphs are kept together.  In all other modes, uses paragraph-based
+collection."
   (interactive (if (use-region-p)
                    (list (region-beginning) (region-end))
                  (list nil nil)))
-  (let* ((paragraphs (gptel-translate--collect-paragraphs beg end))
+  (let* ((paragraphs (if (eq major-mode 'org-mode)
+                         (gptel-translate--collect-org-items beg end)
+                       (gptel-translate--collect-paragraphs beg end)))
          (total (length paragraphs)))
     (if (zerop total)
         (message "Nothing to translate")
@@ -544,7 +552,10 @@ Show original text and translation side-by-side in a new buffer."
              (gptel-use-tools nil)
              (orig-name (buffer-name))
              (orig-buffer (current-buffer))
-             (merge-parapgraphs (gptel-translate--merge-paragraphs paragraphs))
+             (merge-parapgraphs (if (eq major-mode 'org-mode)
+                                    (gptel-translate--merge-org-items paragraphs
+                                                                      (* 1000 (gptel-translate--resolve-context-window) 0.6 0.5 3))
+                                  (gptel-translate--merge-paragraphs paragraphs)))
              (result-buf (gptel-translate--make-result-buffer orig-name orig-buffer paragraphs))
              (done 0)
              (failures 0))
