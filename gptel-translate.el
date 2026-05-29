@@ -354,6 +354,10 @@ backend and model."
    ((numberp gptel-translate-context-window) gptel-translate-context-window)
    (t (user-error "Invalid context window value: %s" gptel-translate-context-window))))
 
+(defun gptel-translate--resolve-max-tokens ()
+  "Return the maximum number of tokens allowed for the input."
+  (* 1000 (gptel-translate--resolve-context-window) 0.6 0.5))
+
 (defun gptel-translate--collect-paragraphs (&optional beg end)
   "Collect paragraphs from buffer (or region BEG to END).
 Returns a list of (STRING . POSITION) cons cells in order,
@@ -391,7 +395,7 @@ as a rough token estimate)."
         (current-para nil)
         (orig-para nil)
         (current-length 0)
-        (max-token (* 1000 (gptel-translate--resolve-context-window) 0.6 0.5)))
+        (max-token (gptel-translate--resolve-max-tokens)))
     (dolist (para paragraphs)
       (let ((para-data (car para)))
         (if (or (not current-para) (<= (/ (+ current-length (length para-data)) 3) max-token))
@@ -644,7 +648,7 @@ collection."
              (orig-buffer (current-buffer))
              (merge-parapgraphs (if (eq major-mode 'org-mode)
                                     (gptel-translate--merge-org-items paragraphs
-                                                                      (* 1000 (gptel-translate--resolve-context-window) 0.6 0.5 3))
+                                                                      (* (gptel-translate--resolve-max-tokens) 3))
                                   (gptel-translate--merge-paragraphs paragraphs)))
              (result-buf (gptel-translate--make-result-buffer orig-name orig-buffer paragraphs)))
         (display-buffer result-buf)
@@ -689,7 +693,7 @@ This command is only available in `gptel-translate-result-mode'."
                   (if (eq major-mode 'org-mode)
                       (gptel-translate--merge-org-items
                        paragraphs
-                       (* 1000 (gptel-translate--resolve-context-window) 0.6 0.5 3))
+                       (* (gptel-translate--resolve-max-tokens) 3))
                     (gptel-translate--merge-paragraphs paragraphs)))))
           ;; Clear result buffer and reset state
           (let ((inhibit-read-only t))
