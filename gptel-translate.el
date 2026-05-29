@@ -234,7 +234,13 @@ the result buffer as the stream arrives."
             ;; First, flush the previous paragraph's text (before this marker)
             (when (and (>= current-idx 0) (< current-idx (length orig-paras))
                        (not (string-blank-p before-marker)))
-              (gptel-translate--insert-translate result-buf (cons orig-buffer (cdr (nth current-idx orig-paras))) (string-trim before-marker)))
+              (let* ((orig-para (nth current-idx orig-paras))
+                     (orig-text (car orig-para))
+                     (headingp (get-text-property 0 :headingp orig-text))
+                     (level (get-text-property 0 :subtree-level orig-text)))
+                (gptel-translate--insert-translate
+                 result-buf (cons orig-buffer (cdr orig-para))
+                 (string-trim before-marker) headingp level)))
             ;; If this paragraph's orig text hasn't been inserted yet, do it now
             (incf current-idx)
             (when (< current-idx (length orig-paras))
@@ -266,7 +272,13 @@ the last marker belongs to the last detected paragraph."
                  (> (length (substring buf-str pos)) 0))
         (let ((remaining (substring buf-str pos)))
           (when (not (string-blank-p remaining))
-            (gptel-translate--insert-translate result-buf (cons orig-buffer (cdr (nth current-idx orig-paras))) (string-trim remaining))))))))
+            (let* ((orig-para (nth current-idx orig-paras))
+                   (orig-text (car orig-para))
+                   (headingp (get-text-property 0 :headingp orig-text))
+                   (level (get-text-property 0 :subtree-level orig-text)))
+              (gptel-translate--insert-translate
+               result-buf (cons orig-buffer (cdr orig-para))
+               (string-trim remaining) headingp level))))))))
 
 (defun gptel-translate--format-status ()
   "Return propertized status string for header-line."
@@ -466,7 +478,8 @@ ORIG is a cons cell (BUFFER . POSITION) identifying the source
 of the original text in the source buffer.
 ORIG-PARA is the original paragraph string.
 
-The text is inserted with `gptel-translate-original-face' and
+The text is inserted with `gptel-translate-original-face' (or
+`org-level-N' if ORIG-PARA has a `:headingp' text property) and
 carries the `gptel-translate-orig' text property set to ORIG.
 Point is advanced past the insertion."
   (with-current-buffer result-buf
@@ -476,20 +489,26 @@ Point is advanced past the insertion."
         (goto-char pos)
         (insert
          (propertize orig-para
-                     'face 'gptel-translate-original-face
+                     'face (if (get-text-property 0 :headingp orig-para)
+                               (intern (format "org-level-%d"
+                                               (or (get-text-property 0 :subtree-level orig-para) 1)))
+                             'gptel-translate-original-face)
                      'gptel-translate-orig orig))
         (insert "\n")
         (set-marker gptel-translate--current-pos (point))))))
 
-(defun gptel-translate--insert-translate (result-buf orig translate)
+(defun gptel-translate--insert-translate (result-buf orig translate &optional headingp subtree-level)
   "Insert TRANSLATE into RESULT-BUF as the translated text paragraph.
 
 RESULT-BUF is the translation result buffer.
 ORIG is a cons cell (BUFFER . POSITION) identifying the source
 of the corresponding original text in the source buffer.
 TRANSLATE is the translated paragraph string.
+HEADINGP and SUBTREE-LEVEL, when provided, indicate this translation
+corresponds to an Org heading; the text uses an `org-level-N' face
+instead of `gptel-translate-translation-face'.
 
-The text is inserted with `gptel-translate-translation-face' and
+The text is inserted with the appropriate face and
 carries the `gptel-translate-orig' text property set to ORIG.
 Point is advanced past the insertion, and a blank line is added
 after the translation to separate it from the next pair."
@@ -498,8 +517,14 @@ after the translation to separate it from the next pair."
           (pos (marker-position gptel-translate--current-pos)))
       (save-excursion
         (goto-char pos)
-        (insert (propertize translate 'face 'gptel-translate-translation-face
-                            'gptel-translate-orig orig))
+        (insert (propertize translate
+                            'face (if headingp
+                                      (intern (format "org-level-%d" (or subtree-level 1)))
+                                    'gptel-translate-translation-face)
+                            'gptel-translate-translation-block t
+                            'gptel-translate-orig orig
+                            :headingp headingp
+                            :subtree-level subtree-level))
         (insert "\n\n")
         (set-marker gptel-translate--current-pos (point))))))
 
@@ -517,13 +542,16 @@ a translation."
          (orig-count (length orig-paras)))
     (cl-loop for i from 0 below orig-count
              for orig-para = (nth i orig-paras)
+             for orig-text = (car orig-para)
              for orig-pos = (cdr orig-para)
              for orig = (cons orig-buffer orig-pos)
+             for headingp = (get-text-property 0 :headingp orig-text)
+             for level = (get-text-property 0 :subtree-level orig-text)
              for translate = (if (< i parsed-count)
                                  (nth i parsed)
                                "<MISSING>")
-             do (gptel-translate--insert-orig result-buf orig (car orig-para))
-             do (gptel-translate--insert-translate result-buf orig translate))
+             do (gptel-translate--insert-orig result-buf orig orig-text)
+             do (gptel-translate--insert-translate result-buf orig translate headingp level))
     orig-count))
 
 ;;; Commands
@@ -671,7 +699,7 @@ Puts point at the start of the original text."
   (let ((fn (if backward #'previous-single-property-change
               #'next-single-property-change)))
     (let ((pos (funcall fn (point) 'face)))
-      (while (and pos (not (memq (get-text-property pos 'face) '(gptel-translate-translation-face))))
+      (while (and pos (not (get-text-property pos 'gptel-translate-translation-block)))
         (setq pos (funcall fn pos 'face)))
       (when pos
         (goto-char pos)
