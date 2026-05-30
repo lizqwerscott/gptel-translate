@@ -664,10 +664,10 @@ collection."
              (gptel-use-tools nil)
              (orig-name (buffer-name))
              (orig-buffer (current-buffer))
-             (merge-parapgraphs (if (eq major-mode 'org-mode)
-                                    (gptel-translate--merge-org-items paragraphs
-                                                                      (* (gptel-translate--resolve-max-tokens) 3))
-                                  (gptel-translate--merge-paragraphs paragraphs)))
+             (merge-paragraphs (if (eq major-mode 'org-mode)
+                                   (gptel-translate--merge-org-items paragraphs
+                                                                     (* (gptel-translate--resolve-max-tokens) 3))
+                                 (gptel-translate--merge-paragraphs paragraphs)))
              (result-buf (gptel-translate--make-result-buffer orig-name orig-buffer paragraphs)))
         (display-buffer result-buf)
         (with-current-buffer result-buf
@@ -675,7 +675,7 @@ collection."
           (setq gptel-translate--model-name (gptel--model-name gptel-model))
           (setq gptel-translate--scope-beg nil
                 gptel-translate--scope-end nil))
-        (gptel-translate--send-requests result-buf orig-buffer merge-parapgraphs total)))))
+        (gptel-translate--send-requests result-buf orig-buffer merge-paragraphs total)))))
 
 (defun gptel-translate--current-paragraph-bounds ()
   "Return (BEG . END) of the current paragraph at point.
