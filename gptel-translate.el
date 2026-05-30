@@ -209,6 +209,13 @@ to re-collect only the originally-scoped content.")
 If nil, the scope is the entire buffer.  See `gptel-translate--scope-beg'.")
 
 ;;; Internal helpers
+
+(defconst gptel-translate--para-marker-re
+  (rx (opt "\n") "[--PARA_" (group (+ digit)) "--]" (opt "\n"))
+  "Regexp matching [--PARA_N--] markers.
+
+Group 1 is the paragraph number.")
+
 (defun gptel-translate--stream-init ()
   "Initialize stream parser state for N paragraphs."
   (setq gptel-translate--stream-state
@@ -237,7 +244,7 @@ the result buffer as the stream arrives."
       (let ((buf-str (plist-get state :buffer))
             (pos (plist-get state :pos))
             (current-idx (plist-get state :index))
-            (marker-re "\\n?\\[--PARA_\\([0-9]+\\)--\\]\\n?"))
+            (marker-re gptel-translate--para-marker-re))
         (while (string-match marker-re buf-str pos)
           (let* ((end-of-marker (match-end 0))
                  (before-marker (substring buf-str pos (match-beginning 0))))
@@ -444,7 +451,7 @@ Returns a list of strings, each being the translated text for one
 paragraph.  Leading/trailing empty strings resulting from markers at
 the very beginning or end are dropped."
   (let ((pos 0)
-        (regex "\n?\\[--PARA_\\([0-9]+\\)--\\]\n?")
+        (regex gptel-translate--para-marker-re)
         (translations '())
         (results))
     (while (string-match regex response pos)
