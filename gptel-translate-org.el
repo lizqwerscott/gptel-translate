@@ -235,5 +235,19 @@ space allows."
           (nreverse result))))))
 
 
+(defun gptel-translate--org-current-subtree-bounds ()
+  "Return (BEG . END) of the current org subtree at point.
+Returns nil if not in an org-mode buffer or not inside a subtree.
+Uses `org-back-to-heading' and `org-end-of-subtree' to find bounds,
+covering the heading line through all its children."
+  (when (eq major-mode 'org-mode)
+    (save-excursion
+      (ignore-errors
+        (org-back-to-heading t)
+        (let ((beg (point)))
+          (org-end-of-subtree t t)
+          (cons beg (point)))))))
+
+
 (provide 'gptel-translate-org)
 ;;; gptel-translate-org.el ends here

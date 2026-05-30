@@ -198,6 +198,16 @@ One of `idle', `waiting', `translating', `complete', `aborted', `error'.")
 (defvar-local gptel-translate--model-name ""
   "Model name used for translation, stored for header-line display.")
 
+(defvar-local gptel-translate--scope-beg nil
+  "Beginning position of the translation scope in the original buffer.
+If nil, the scope is the entire buffer.  Set by `gptel-translate-buffer',
+`gptel-translate-at-point', etc.  Used by `gptel-translate-retranslate'
+to re-collect only the originally-scoped content.")
+
+(defvar-local gptel-translate--scope-end nil
+  "End position of the translation scope in the original buffer.
+If nil, the scope is the entire buffer.  See `gptel-translate--scope-beg'.")
+
 ;;; Internal helpers
 (defun gptel-translate--stream-init ()
   "Initialize stream parser state for N paragraphs."
@@ -450,17 +460,25 @@ the very beginning or end are dropped."
         (cdr results)
       results)))
 
-(defun gptel-translate--make-result-buffer (orig-name orig-buffer paragraphs)
+(defun gptel-translate--make-result-buffer (orig-name orig-buffer paragraphs &optional suffix)
   "Create and return a new buffer for translation results.
 ORIG-NAME is the source buffer name.
 ORIG-BUFFER is the source buffer object.
 PARAGRAPHS is a list of (STRING . POSITION) cons cells.
+SUFFIX, if non-nil, is appended to the result buffer name to
+  distinguish scoped translations (e.g. \"*translate foo - heading*\").
+
+If a result buffer with the same name already exists, it is killed first.
 
 Each result entry has a text property `gptel-translate-orig-pos' whose
 value is the buffer position in ORIG-BUFFER where the original paragraph
-starts.  Returns the buffer and a list of slot markers."
-  (let ((buf (generate-new-buffer
-              (format "*translate %s*" orig-name))))
+starts.  Returns the buffer."
+  (let* ((buf-name (if suffix
+                       (format "*translate %s - %s*" orig-name suffix)
+                     (format "*translate %s*" orig-name)))
+         (buf (get-buffer buf-name)))
+    (when buf (kill-buffer buf))
+    (setq buf (generate-new-buffer buf-name))
     (with-current-buffer buf
       (goto-char (point-min))
       (gptel-translate-result-mode)
@@ -654,8 +672,100 @@ collection."
         (display-buffer result-buf)
         (with-current-buffer result-buf
           (setq gptel-translate--backend-name (gptel-backend-name gptel-backend))
-          (setq gptel-translate--model-name (gptel--model-name gptel-model)))
+          (setq gptel-translate--model-name (gptel--model-name gptel-model))
+          (setq gptel-translate--scope-beg nil
+                gptel-translate--scope-end nil))
         (gptel-translate--send-requests result-buf orig-buffer merge-parapgraphs total)))))
+
+(defun gptel-translate--current-paragraph-bounds ()
+  "Return (BEG . END) of the current paragraph at point.
+Uses `backward-paragraph' / `forward-paragraph' to detect boundaries.
+Returns nil if the paragraph is empty."
+  (save-excursion
+    (let ((beg (progn (skip-chars-forward "\n\t ")
+                      (backward-paragraph)
+                      (point)))
+          (end (progn (forward-paragraph)
+                      (point))))
+      (when (> end beg)
+        (cons beg end)))))
+
+;;;###autoload
+(defun gptel-translate-at-point ()
+  "Translate content at point.
+
+In Org mode, translates the current subtree (heading + all children).
+In non-Org modes, translates the current paragraph only.
+
+Result buffer name reflects the scope:
+- Non-Org:  *translate <buffer> - paragraph*
+- Org:      *translate <buffer> - <heading>*
+
+Repeated calls on the same scope reuse the same result buffer (replacing its
+content)."
+  (interactive)
+  (if (eq major-mode 'org-mode)
+      ;; --- Org mode: translate current subtree ---
+      (if-let* ((bounds (gptel-translate--org-current-subtree-bounds)))
+          (let* ((beg (car bounds))
+                 (end (cdr bounds))
+                 (heading (save-excursion
+                            (goto-char beg)
+                            (org-get-heading t t t t)))
+                 (suffix (if (and heading (not (string-blank-p heading)))
+                             (truncate-string-to-width heading 40 nil nil t)
+                           "subtree")))
+            (let* ((paragraphs (gptel-translate--collect-org-items beg end))
+                   (total (length paragraphs)))
+              (if (zerop total)
+                  (message "Nothing to translate")
+                (let* ((gptel-backend (gptel-translate--resolve-backend))
+                       (gptel-model (gptel-translate--resolve-model))
+                       (gptel-tools nil)
+                       (gptel-use-tools nil)
+                       (orig-name (buffer-name))
+                       (orig-buffer (current-buffer))
+                       (merge-batches (gptel-translate--merge-org-items
+                                       paragraphs
+                                       (* (gptel-translate--resolve-max-tokens) 3)))
+                       (result-buf (gptel-translate--make-result-buffer
+                                    orig-name orig-buffer paragraphs suffix)))
+                  (display-buffer result-buf)
+                  (with-current-buffer result-buf
+                    (setq gptel-translate--backend-name (gptel-backend-name gptel-backend))
+                    (setq gptel-translate--model-name (gptel--model-name gptel-model))
+                    (setq gptel-translate--scope-beg beg
+                          gptel-translate--scope-end end))
+                  (gptel-translate--send-requests
+                   result-buf orig-buffer merge-batches total)))))
+        (user-error "Not in an org subtree"))
+    ;; --- Non-org mode: translate current paragraph ---
+    (if-let* ((bounds (gptel-translate--current-paragraph-bounds)))
+        (let* ((beg (car bounds))
+               (end (cdr bounds))
+               (suffix "paragraph"))
+          (let* ((paragraphs (gptel-translate--collect-paragraphs beg end))
+                 (total (length paragraphs)))
+            (if (zerop total)
+                (message "Nothing to translate")
+              (let* ((gptel-backend (gptel-translate--resolve-backend))
+                     (gptel-model (gptel-translate--resolve-model))
+                     (gptel-tools nil)
+                     (gptel-use-tools nil)
+                     (orig-name (buffer-name))
+                     (orig-buffer (current-buffer))
+                     (merge-batches (gptel-translate--merge-paragraphs paragraphs))
+                     (result-buf (gptel-translate--make-result-buffer
+                                  orig-name orig-buffer paragraphs suffix)))
+                (display-buffer result-buf)
+                (with-current-buffer result-buf
+                  (setq gptel-translate--backend-name (gptel-backend-name gptel-backend))
+                  (setq gptel-translate--model-name (gptel--model-name gptel-model))
+                  (setq gptel-translate--scope-beg beg
+                        gptel-translate--scope-end end))
+                (gptel-translate--send-requests
+                 result-buf orig-buffer merge-batches total)))))
+      (user-error "No paragraph at point"))))
 
 ;;;###autoload
 (defun gptel-translate-retranslate ()
@@ -674,12 +784,14 @@ This command is only available in `gptel-translate-result-mode'."
     ;; Abort any in-progress translation
     (when (memq gptel-translate--status '(waiting translating))
       (gptel-translate-abort))
-    ;; Re-collect paragraphs from source buffer
-    (let* ((paragraphs
+    ;; Re-collect paragraphs from source buffer, respecting original scope
+    (let* ((scope-beg gptel-translate--scope-beg)
+           (scope-end gptel-translate--scope-end)
+           (paragraphs
             (with-current-buffer orig-buffer
               (if (eq major-mode 'org-mode)
-                  (gptel-translate--collect-org-items)
-                (gptel-translate--collect-paragraphs))))
+                  (gptel-translate--collect-org-items scope-beg scope-end)
+                (gptel-translate--collect-paragraphs scope-beg scope-end))))
            (total (length paragraphs)))
       (if (zerop total)
           (message "Nothing to translate")
