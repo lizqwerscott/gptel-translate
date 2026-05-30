@@ -29,22 +29,40 @@ git clone https://github.com/lizqwerscott/gptel-translate ~/.emacs.d/site-lisp/g
 #+end_src
 
 * Usage
-1. Open a buffer you want to translate.
-2. (Optional) Select a region to translate only that part.
-3. Run ~M-x gptel-translate-buffer~.
+** Commands
+
+| Command                         | Description                                                     |
+|---------------------------------+-----------------------------------------------------------------|
+| ~M-x gptel-translate-buffer~    | Translate whole buffer, or active region if one is selected     |
+| ~M-x gptel-translate-at-point~  | Translate current paragraph (non-Org) or current Org subtree    |
+
+- ~gptel-translate-buffer~: With an active region, only that region is translated.
+  In Org mode, content is collected by subtree (headings + body paragraphs).
+  In other modes, paragraph-based collection is used.
+
+- ~gptel-translate-at-point~: Translates only the content at point.
+  In Org mode, this translates the current subtree (heading + all children).
+  Repeated calls on the same scope reuse the same result buffer.
+  In non-Org modes, translates the current paragraph.
 
 ** Key bindings in the result buffer
 
-| Key               | Command                              |
-|-------------------+--------------------------------------|
-| ~RET~             | Jump to original in source buffer    |
-| ~TAB~ / ~n~       | Next paragraph                       |
-| ~S-TAB~ / ~p~    | Previous paragraph                   |
-| ~g~               | Re-translate current paragraph       |
-| ~C-g~             | Abort translation                    |
+| Key               | Command                                           |
+|-------------------+---------------------------------------------------|
+| ~RET~             | Jump to original in source buffer                 |
+| ~TAB~ / ~n~       | Next paragraph                                    |
+| ~S-TAB~ / ~p~     | Previous paragraph                                |
+| ~g~               | Re-translate all content (~gptel-translate-retranslate~) |
+| ~C-g~             | Abort translation (~gptel-translate-abort~)             |
 
 When moving between paragraphs, if ~gptel-translate-followp~ is non-nil (the
 default), point in the source buffer follows along automatically.
+
+~gptel-translate-retranslate~ re-collects paragraphs from the source buffer
+(picking up any edits you may have made) and re-sends all paragraphs to the LLM,
+clearing existing translations.
+
+~gptel-translate-abort~ stops any in-progress translation.
 
 * License
 GPLv3 — see the ~LICENSE~ file in the repository.
