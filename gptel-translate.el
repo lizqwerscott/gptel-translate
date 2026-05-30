@@ -318,14 +318,16 @@ the last marker belongs to the last detected paragraph."
 
 (defun gptel-translate--resolve-system-prompt (replaces)
   "Return the rendered system prompt.
-If `gptel-translate-system-prompt' is an existing file path, render it
-with `templatel-render-file'.  Otherwise treat it as a template literal
-and render with `templatel-render-string'.
+If `gptel-translate-system-prompt' is an existing file path, render it with
+`templatel-render-file'. Otherwise treat it as a template literal and render
+with `templatel-render-string'.
 REPLACES is an alist passed to the templatel renderer."
   (let ((prompt gptel-translate-system-prompt))
-    (if (and (stringp prompt)
-             (file-exists-p (expand-file-name prompt)))
-        (templatel-render-file (expand-file-name prompt) replaces)
+    (unless (stringp prompt)
+      (error "gptel-translate-system-prompt must be a string, got: %S" prompt))
+    (if-let* ((file (expand-file-name prompt))
+              ((file-exists-p file)))
+        (templatel-render-file file replaces)
       (templatel-render-string prompt replaces))))
 
 (defun gptel-translate--resolve-backend ()
