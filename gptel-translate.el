@@ -846,6 +846,8 @@ Return non-nil on success."
       (switch-to-buffer-other-window buf)
       (goto-char pos)
       (recenter)
+      (when (equal major-mode 'org-mode)
+        (org-reveal))
       t)))
 
 (defun gptel-translate-jump-to-original ()
@@ -863,7 +865,9 @@ Requires the source buffer to still be alive."
       (if-let* ((win (get-buffer-window buf)))
           (with-selected-window win
             (goto-char pos)
-            (recenter))))))
+            (recenter)
+            (when (equal major-mode 'org-mode)
+              (org-reveal)))))))
 
 (defun gptel-translate--find-paragraph-boundaries (&optional backward)
   "Move to the next/previous original paragraph boundary.
